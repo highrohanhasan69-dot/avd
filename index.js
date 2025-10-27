@@ -12,18 +12,24 @@ const pool = require("./db");
 const app = express();
 
 // ---------------- MIDDLEWARE ----------------
+
+// ✅ Proper CORS setup for Local + Cloudflare (Frontend)
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: [
+      "http://localhost:5173",       // Local Vue dev
+      "https://avado.pages.dev",     // Cloudflare live frontend
+    ],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     credentials: true,
   })
 );
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// ✅ Request Logger
+// ✅ Request Logger (optional but useful)
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
   next();
@@ -39,18 +45,18 @@ const authRoutes = require("./routes/auth");
 const cartRoutes = require("./routes/cart");
 const checkoutRoutes = require("./routes/checkout");
 const footerRoutes = require("./routes/footer");
-const bannerRoutes = require("./routes/banners");      // ✅ new
-const categoryRoutes = require("./routes/categories"); // ✅ new
-const productRoutes = require("./routes/products");    // ✅ new
+const bannerRoutes = require("./routes/banners");      // ✅ Banners
+const categoryRoutes = require("./routes/categories"); // ✅ Categories
+const productRoutes = require("./routes/products");    // ✅ Products
 
 // ---------------- ROUTES REGISTER ----------------
 app.use("/api/auth", authRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/checkout", checkoutRoutes);
 app.use("/api/footer", footerRoutes);
-app.use("/banners", bannerRoutes);      // ✅ new route
-app.use("/categories", categoryRoutes); // ✅ new route
-app.use("/products", productRoutes);    // ✅ new route
+app.use("/banners", bannerRoutes);
+app.use("/categories", categoryRoutes);
+app.use("/products", productRoutes);
 
 // ---------------- HEALTH CHECK ----------------
 app.get("/health", (req, res) => {
