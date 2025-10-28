@@ -1,3 +1,4 @@
+// routes/checkout.js
 const express = require("express");
 const router = express.Router();
 const pool = require("../db");
@@ -6,6 +7,9 @@ const bcrypt = require("bcryptjs");
 const { getUserOrGuest } = require("../middleware/authMiddleware");
 
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// 🌐 Environment helper (for cross-domain cookies)
+const isProd = process.env.NODE_ENV === "production";
 
 /* ===========================================================
    ✅ PLACE ORDER (Auto user create if guest)
@@ -57,11 +61,16 @@ router.post("/", getUserOrGuest, async (req, res) => {
         );
         userId = newUser.rows[0].id;
 
-        // 🔹 Set JWT Cookie for auto login
-        const newToken = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "7d" });
+        // 🔹 Set JWT Cookie for auto login (cross-domain safe)
+        const newToken = jwt.sign({ id: userId }, JWT_SECRET, {
+          expiresIn: "7d",
+        });
+
         res.cookie("token", newToken, {
           httpOnly: true,
-          sameSite: "Lax",
+          sameSite: isProd ? "None" : "Lax",
+          secure: isProd,
+          domain: isProd ? ".onrender.com" : undefined, // ✅ Render + Cloudflare sync
           maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
@@ -92,7 +101,7 @@ router.post("/", getUserOrGuest, async (req, res) => {
       req.cartOwner?.id || null,
       JSON.stringify(fixedItems),
       total,
-      JSON.stringify(customer), // ✅ store full customer JSON
+      JSON.stringify(customer), // ✅ full JSON store
       payment_method || "Cash on Delivery",
       "pending",
     ]);
@@ -101,7 +110,9 @@ router.post("/", getUserOrGuest, async (req, res) => {
     if (userId) {
       await client.query("DELETE FROM carts WHERE user_id=$1", [userId]);
     } else if (req.cartOwner?.id) {
-      await client.query("DELETE FROM carts WHERE session_id=$1", [req.cartOwner.id]);
+      await client.query("DELETE FROM carts WHERE session_id=$1", [
+        req.cartOwner.id,
+      ]);
     }
 
     await client.query("COMMIT");
@@ -111,7 +122,9 @@ router.post("/", getUserOrGuest, async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("❌ Checkout Error:", err);
-    res.status(500).json({ error: "Checkout failed", details: err.message });
+    res
+      .status(500)
+      .json({ error: "Checkout failed", details: err.message });
   } finally {
     client.release();
   }
@@ -134,7 +147,10 @@ router.get("/", async (req, res) => {
     const orders = result.rows.map((row) => ({
       ...row,
       items: typeof row.items === "string" ? JSON.parse(row.items) : row.items,
-      customer: typeof row.customer === "string" ? JSON.parse(row.customer) : row.customer,
+      customer:
+        typeof row.customer === "string"
+          ? JSON.parse(row.customer)
+          : row.customer,
     }));
 
     res.json({ success: true, orders });
@@ -149,11 +165,16 @@ router.get("/", async (req, res) => {
 =========================================================== */
 router.get("/admin/all", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM orders ORDER BY created_at DESC");
+    const result = await pool.query(
+      "SELECT * FROM orders ORDER BY created_at DESC"
+    );
     const orders = result.rows.map((row) => ({
       ...row,
       items: typeof row.items === "string" ? JSON.parse(row.items) : row.items,
-      customer: typeof row.customer === "string" ? JSON.parse(row.customer) : row.customer,
+      customer:
+        typeof row.customer === "string"
+          ? JSON.parse(row.customer)
+          : row.customer,
     }));
     res.json({ success: true, orders });
   } catch (err) {
