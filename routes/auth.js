@@ -64,11 +64,12 @@ router.post('/login', async (req, res) => {
 
     const isProd = process.env.NODE_ENV === "production";
     const cookieOptions = {
-      httpOnly: true,
-      sameSite: isProd ? "None" : "Lax",
-      secure: isProd, // Cloudflare uses HTTPS, so secure must be true
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    };
+  httpOnly: true,
+  sameSite: isProd ? "None" : "Lax", // ✅ Cross-domain support
+  secure: isProd,                    // ✅ HTTPS only cookies
+  domain: isProd ? ".onrender.com" : undefined, // ✅ Allow Cloudflare → Render cookie share
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
 
     res.cookie('token', token, cookieOptions);
 

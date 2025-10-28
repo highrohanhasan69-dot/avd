@@ -17,13 +17,15 @@ const app = express();
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",       // Local Vue dev
-      "https://avado.pages.dev",     // Cloudflare live frontend
+      "http://localhost:5173",          // local dev
+      "https://avado.pages.dev",        // Cloudflare live frontend
     ],
+    credentials: true, // ✅ allow cookie exchange
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
