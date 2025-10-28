@@ -23,19 +23,32 @@ const uploadBanner = multer({ storage });
 
 // ---------------------
 // 🔼 Helper: Upload to Cloudinary
-// ---------------------
-const uploadToCloudinary = (fileBuffer, folder) => {
+// 🧩 Cloudinary Upload Helper (Final Tested)
+const uploadToCloudinary = async (fileBuffer, folder) => {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      { folder },
-      (error, result) => {
-        if (result) resolve(result.secure_url);
-        else reject(error);
-      }
-    );
-    streamifier.createReadStream(fileBuffer).pipe(stream);
+    try {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder, resource_type: "auto" }, // 🔹 auto detects image/video/etc.
+        (error, result) => {
+          if (error) {
+            console.error("❌ Cloudinary upload failed:", error.message);
+            reject(error);
+          } else {
+            console.log("✅ Cloudinary upload success:", result.secure_url);
+            resolve(result.secure_url);
+          }
+        }
+      );
+
+      // 🔹 Proper stream pass
+      streamifier.createReadStream(fileBuffer).pipe(uploadStream);
+    } catch (err) {
+      console.error("❌ Streamifier failed:", err.message);
+      reject(err);
+    }
   });
 };
+
 
 // ============================================================
 // ✅ GET ALL BANNERS
