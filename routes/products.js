@@ -1,9 +1,17 @@
+// routes/products.js
 const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+
+// 🌐 Dynamic Base URL Setup
+const getBaseURL = () => {
+  return process.env.NODE_ENV === "production"
+    ? "https://avado-backend.onrender.com"
+    : `http://localhost:${process.env.PORT || 5000}`;
+};
 
 // ------------------- Upload Config -------------------
 const productDir = path.join(__dirname, "../uploads/products");
@@ -18,11 +26,12 @@ const upload = multer({ storage });
 // ✅ Upload Image
 router.post("/upload", upload.single("image"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Image required" });
-  const image_url = `http://localhost:${process.env.PORT || 5000}/uploads/products/${req.file.filename}`;
+  const baseURL = getBaseURL();
+  const image_url = `${baseURL}/uploads/products/${req.file.filename}`;
   res.json({ image_url });
 });
 
-// ✅ SEARCH products (must be above /:id)
+// ✅ SEARCH products
 router.get("/search", async (req, res) => {
   const q = req.query.q?.trim();
   if (!q) return res.json([]);
@@ -95,174 +104,6 @@ router.get("/:id", async (req, res) => {
   } catch (err) {
     console.error("❌ GET /api/products/:id error:", err);
     res.status(500).json({ error: "Server error" });
-  } finally {
-    client.release();
-  }
-});
-
-// ✅ Add new product
-router.post("/", async (req, res) => {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const {
-      name,
-      price,
-      description,
-      category_slug,
-      image_url,
-      secondary_image_url,
-      is_top_product,
-      is_hot_deal,
-      discount_percent,
-      offer_end_date,
-      variants = [],
-    } = req.body;
-
-    const pres = await client.query(
-      `INSERT INTO products 
-       (name, price, description, category_slug, image_url, secondary_image_url, 
-        is_top_product, is_hot_deal, discount_percent, offer_end_date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [
-        name,
-        price,
-        description,
-        category_slug,
-        image_url,
-        secondary_image_url,
-        is_top_product,
-        is_hot_deal,
-        discount_percent,
-        offer_end_date,
-      ]
-    );
-    const product = pres.rows[0];
-
-    for (const variant of variants) {
-      const vres = await client.query(
-        `INSERT INTO product_variants (product_id, variant_level, name)
-         VALUES ($1,$2,$3) RETURNING *`,
-        [product.id, variant.level, variant.name]
-      );
-      const vr = vres.rows[0];
-      if (variant.options?.length) {
-        for (const o of variant.options) {
-          await client.query(
-            `INSERT INTO product_variant_options 
-             (variant_id, option_name, option_price, option_image_url)
-             VALUES ($1,$2,$3,$4)`,
-            [vr.id, o.option_name, o.option_price, o.option_image_url]
-          );
-        }
-      }
-    }
-
-    await client.query("COMMIT");
-    res.json(product);
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("❌ POST /api/products error:", err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
-  }
-});
-
-// ✅ Update product
-router.put("/:id", async (req, res) => {
-  const { id } = req.params;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const {
-      name,
-      price,
-      description,
-      category_slug,
-      image_url,
-      secondary_image_url,
-      is_top_product,
-      is_hot_deal,
-      discount_percent,
-      offer_end_date,
-      variants = [],
-    } = req.body;
-
-    await client.query(
-      `UPDATE products
-       SET name=$1, price=$2, description=$3, category_slug=$4, image_url=$5,
-           secondary_image_url=$6, is_top_product=$7, is_hot_deal=$8,
-           discount_percent=$9, offer_end_date=$10
-       WHERE id=$11`,
-      [
-        name,
-        price,
-        description,
-        category_slug,
-        image_url,
-        secondary_image_url,
-        is_top_product,
-        is_hot_deal,
-        discount_percent,
-        offer_end_date,
-        id,
-      ]
-    );
-
-    await client.query(
-      "DELETE FROM product_variant_options WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id=$1)",
-      [id]
-    );
-    await client.query("DELETE FROM product_variants WHERE product_id=$1", [id]);
-
-    for (const variant of variants) {
-      const vres = await client.query(
-        `INSERT INTO product_variants (product_id, variant_level, name)
-         VALUES ($1,$2,$3) RETURNING *`,
-        [id, variant.level, variant.name]
-      );
-      const vr = vres.rows[0];
-      if (variant.options?.length) {
-        for (const o of variant.options) {
-          await client.query(
-            `INSERT INTO product_variant_options (variant_id, option_name, option_price, option_image_url)
-             VALUES ($1,$2,$3,$4)`,
-            [vr.id, o.option_name, o.option_price, o.option_image_url]
-          );
-        }
-      }
-    }
-
-    await client.query("COMMIT");
-    res.json({ success: true });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("❌ PUT /api/products/:id error:", err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
-  }
-});
-
-// ✅ Delete product
-router.delete("/:id", async (req, res) => {
-  const { id } = req.params;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(
-      "DELETE FROM product_variant_options WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id=$1)",
-      [id]
-    );
-    await client.query("DELETE FROM product_variants WHERE product_id=$1", [id]);
-    await client.query("DELETE FROM products WHERE id=$1", [id]);
-    await client.query("COMMIT");
-    res.json({ success: true });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("❌ DELETE /api/products/:id error:", err);
-    res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }

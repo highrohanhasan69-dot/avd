@@ -28,6 +28,15 @@ const storage = multer.diskStorage({
 });
 const uploadCategory = multer({ storage });
 
+// -------------------------
+// 🌐 Dynamic Base URL Setup
+// -------------------------
+const getBaseURL = () => {
+  return process.env.NODE_ENV === "production"
+    ? "https://avado-backend.onrender.com"
+    : `http://localhost:${process.env.PORT || 5000}`;
+};
+
 /* ==========================================================
    ✅ 1️⃣ সব ক্যাটাগরি পাওয়া (READ)
 ========================================================== */
@@ -49,7 +58,8 @@ router.post("/", uploadCategory.single("image"), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Image required" });
     if (!req.body.slug) return res.status(400).json({ error: "Slug required" });
 
-    const image_url = `http://localhost:${process.env.PORT || 5000}/uploads/categories/${req.file.filename}`;
+    const baseURL = getBaseURL();
+    const image_url = `${baseURL}/uploads/categories/${req.file.filename}`;
     const { slug } = req.body;
 
     const result = await pool.query(
@@ -74,15 +84,14 @@ router.put("/:id", uploadCategory.single("image"), async (req, res) => {
   try {
     const { id } = req.params;
     const { slug } = req.body;
+    const baseURL = getBaseURL();
 
-    // পুরনো ডাটা বের করা
     const oldData = await pool.query("SELECT * FROM categories WHERE id=$1", [id]);
     if (oldData.rows.length === 0)
       return res.status(404).json({ message: "Category not found" });
 
     let image_url = oldData.rows[0].image_url;
 
-    // যদি নতুন ছবি upload করা হয়, পুরনোটা মুছে দাও
     if (req.file) {
       const oldPath = path.join(
         __dirname,
@@ -93,7 +102,7 @@ router.put("/:id", uploadCategory.single("image"), async (req, res) => {
       );
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
 
-      image_url = `http://localhost:${process.env.PORT || 5000}/uploads/categories/${req.file.filename}`;
+      image_url = `${baseURL}/uploads/categories/${req.file.filename}`;
     }
 
     const updated = await pool.query(
@@ -118,12 +127,10 @@ router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    // পুরনো ডাটা বের করো
     const oldData = await pool.query("SELECT * FROM categories WHERE id=$1", [id]);
     if (oldData.rows.length === 0)
       return res.status(404).json({ message: "Category not found" });
 
-    // ছবি ফাইল মুছে দাও
     const imagePath = path.join(
       __dirname,
       "..",
@@ -133,7 +140,6 @@ router.delete("/:id", async (req, res) => {
     );
     if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
 
-    // ডাটাবেস থেকে row ডিলিট
     await pool.query("DELETE FROM categories WHERE id=$1", [id]);
 
     res.json({ message: "🗑️ Category deleted successfully" });
