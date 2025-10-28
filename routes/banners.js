@@ -36,13 +36,19 @@ router.get("/", async (req, res) => {
 });
 
 // ============================================================
-// ✅ ADD NEW BANNER
+// ✅ ADD NEW BANNER (Dynamic URL for Local + Render)
 // ============================================================
 router.post("/", uploadBanner.single("image"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Image required" });
 
-    const image_url = `http://localhost:${process.env.PORT || 5000}/uploads/${req.file.filename}`;
+    // 🔹 Dynamic base URL (Local + Production)
+    const baseURL =
+      process.env.NODE_ENV === "production"
+        ? "https://avado-backend.onrender.com"
+        : `http://localhost:${process.env.PORT || 5000}`;
+
+    const image_url = `${baseURL}/uploads/${req.file.filename}`;
     const { link } = req.body;
 
     const result = await pool.query(
@@ -64,24 +70,17 @@ router.delete("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    // 1️⃣ Check if banner exists
     const banner = await pool.query("SELECT * FROM banners WHERE id = $1", [id]);
-    if (banner.rows.length === 0) {
+    if (banner.rows.length === 0)
       return res.status(404).json({ message: "Banner not found" });
-    }
 
     const imageUrl = banner.rows[0].image_url;
-    const filename = imageUrl.split("/uploads/")[1]; // extract filename
+    const filename = imageUrl.split("/uploads/")[1];
     const filePath = path.join(uploadsDir, filename);
 
-    // 2️⃣ Delete DB entry
     await pool.query("DELETE FROM banners WHERE id = $1", [id]);
 
-    // 3️⃣ Delete file from folder (if exists)
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      console.log("🗑️ Deleted banner image:", filePath);
-    }
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
     res.json({ message: "Banner deleted successfully" });
   } catch (err) {
