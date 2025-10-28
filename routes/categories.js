@@ -3,38 +3,38 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { v2: cloudinary } = require("cloudinary");
+const streamifier = require("streamifier");
 
 // -------------------------
-// 📂 CATEGORY UPLOAD FOLDER
+// ☁️ CLOUDINARY CONFIG
 // -------------------------
-const categoryDir = path.join(__dirname, "../uploads/categories");
-if (!fs.existsSync(categoryDir)) fs.mkdirSync(categoryDir, { recursive: true });
-
-// -------------------------
-// 🧹 FILENAME SANITIZER
-// -------------------------
-const sanitizeFilename = (name) =>
-  name.replace(/[^a-zA-Z0-9.\-_]/g, "_").substring(0, 50);
-
-// -------------------------
-// 📸 MULTER STORAGE SETUP
-// -------------------------
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, categoryDir),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + "-" + sanitizeFilename(file.originalname)),
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+// -------------------------
+// 📸 MULTER (Memory Storage)
+// -------------------------
+const storage = multer.memoryStorage();
 const uploadCategory = multer({ storage });
 
 // -------------------------
-// 🌐 Dynamic Base URL Setup
+// 🔼 Helper: Upload to Cloudinary
 // -------------------------
-const getBaseURL = () => {
-  return process.env.NODE_ENV === "production"
-    ? "https://avado-backend.onrender.com"
-    : `http://localhost:${process.env.PORT || 5000}`;
+const uploadToCloudinary = (fileBuffer, folder) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder },
+      (error, result) => {
+        if (result) resolve(result.secure_url);
+        else reject(error);
+      }
+    );
+    streamifier.createReadStream(fileBuffer).pipe(stream);
+  });
 };
 
 /* ==========================================================
@@ -58,8 +58,8 @@ router.post("/", uploadCategory.single("image"), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Image required" });
     if (!req.body.slug) return res.status(400).json({ error: "Slug required" });
 
-    const baseURL = getBaseURL();
-    const image_url = `${baseURL}/uploads/categories/${req.file.filename}`;
+    // ☁️ Upload image to Cloudinary
+    const image_url = await uploadToCloudinary(req.file.buffer, "avado/categories");
     const { slug } = req.body;
 
     const result = await pool.query(
@@ -84,25 +84,17 @@ router.put("/:id", uploadCategory.single("image"), async (req, res) => {
   try {
     const { id } = req.params;
     const { slug } = req.body;
-    const baseURL = getBaseURL();
 
+    // পুরনো ডাটা বের করা
     const oldData = await pool.query("SELECT * FROM categories WHERE id=$1", [id]);
     if (oldData.rows.length === 0)
       return res.status(404).json({ message: "Category not found" });
 
     let image_url = oldData.rows[0].image_url;
 
+    // ☁️ যদি নতুন ছবি upload করা হয়, Cloudinary তে আপলোড করো
     if (req.file) {
-      const oldPath = path.join(
-        __dirname,
-        "..",
-        "uploads",
-        "categories",
-        path.basename(image_url)
-      );
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-
-      image_url = `${baseURL}/uploads/categories/${req.file.filename}`;
+      image_url = await uploadToCloudinary(req.file.buffer, "avado/categories");
     }
 
     const updated = await pool.query(
@@ -127,19 +119,12 @@ router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
+    // পুরনো ডাটা বের করো
     const oldData = await pool.query("SELECT * FROM categories WHERE id=$1", [id]);
     if (oldData.rows.length === 0)
       return res.status(404).json({ message: "Category not found" });
 
-    const imagePath = path.join(
-      __dirname,
-      "..",
-      "uploads",
-      "categories",
-      path.basename(oldData.rows[0].image_url)
-    );
-    if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
-
+    // Cloudinary তে image delete করার দরকার নেই (optional)
     await pool.query("DELETE FROM categories WHERE id=$1", [id]);
 
     res.json({ message: "🗑️ Category deleted successfully" });

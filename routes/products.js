@@ -3,35 +3,57 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { v2: cloudinary } = require("cloudinary");
+const streamifier = require("streamifier");
 
-// 🌐 Dynamic Base URL Setup
-const getBaseURL = () => {
-  return process.env.NODE_ENV === "production"
-    ? "https://avado-backend.onrender.com"
-    : `http://localhost:${process.env.PORT || 5000}`;
-};
-
-// ------------------- Upload Config -------------------
-const productDir = path.join(__dirname, "../uploads/products");
-if (!fs.existsSync(productDir)) fs.mkdirSync(productDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, productDir),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
+// -------------------------
+// ☁️ CLOUDINARY CONFIG
+// -------------------------
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+// -------------------------
+// 📸 MULTER MEMORY STORAGE
+// -------------------------
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// ✅ Upload Image
-router.post("/upload", upload.single("image"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "Image required" });
-  const baseURL = getBaseURL();
-  const image_url = `${baseURL}/uploads/products/${req.file.filename}`;
-  res.json({ image_url });
+// -------------------------
+// 🔼 Helper: Upload to Cloudinary
+// -------------------------
+const uploadToCloudinary = (fileBuffer, folder) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder },
+      (error, result) => {
+        if (result) resolve(result.secure_url);
+        else reject(error);
+      }
+    );
+    streamifier.createReadStream(fileBuffer).pipe(stream);
+  });
+};
+
+/* ==========================================================
+   ✅ IMAGE UPLOAD (Primary/Secondary/Variant Option)
+========================================================== */
+router.post("/upload", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Image required" });
+    const image_url = await uploadToCloudinary(req.file.buffer, "avado/products");
+    res.json({ image_url });
+  } catch (err) {
+    console.error("❌ Cloudinary Upload Error:", err);
+    res.status(500).json({ error: "Image upload failed", details: err.message });
+  }
 });
 
-// ✅ SEARCH products
+/* ==========================================================
+   ✅ SEARCH PRODUCTS
+========================================================== */
 router.get("/search", async (req, res) => {
   const q = req.query.q?.trim();
   if (!q) return res.json([]);
@@ -51,7 +73,9 @@ router.get("/search", async (req, res) => {
   }
 });
 
-// ✅ Get all products (with variants)
+/* ==========================================================
+   ✅ GET ALL PRODUCTS (with variants)
+========================================================== */
 router.get("/", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM products ORDER BY id DESC");
@@ -62,6 +86,7 @@ router.get("/", async (req, res) => {
         "SELECT * FROM product_variants WHERE product_id=$1",
         [product.id]
       );
+
       const variants = [];
       for (const variant of vres.rows) {
         const ores = await pool.query(
@@ -70,6 +95,7 @@ router.get("/", async (req, res) => {
         );
         variants.push({ ...variant, options: ores.rows });
       }
+
       product.variants = variants;
     }
 
@@ -80,7 +106,9 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ✅ Get single product (with variants)
+/* ==========================================================
+   ✅ GET SINGLE PRODUCT (with variants)
+========================================================== */
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
   const client = await pool.connect();
@@ -89,7 +117,10 @@ router.get("/:id", async (req, res) => {
     if (!pres.rows.length) return res.status(404).json({ error: "Not found" });
 
     const product = pres.rows[0];
-    const vres = await client.query("SELECT * FROM product_variants WHERE product_id=$1", [id]);
+    const vres = await client.query(
+      "SELECT * FROM product_variants WHERE product_id=$1",
+      [id]
+    );
 
     const variants = [];
     for (const variant of vres.rows) {
@@ -104,6 +135,77 @@ router.get("/:id", async (req, res) => {
   } catch (err) {
     console.error("❌ GET /api/products/:id error:", err);
     res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+/* ==========================================================
+   ✅ ADD NEW PRODUCT (with variants)
+========================================================== */
+router.post("/", async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const {
+      name,
+      price,
+      description,
+      category_slug,
+      image_url,
+      secondary_image_url,
+      is_top_product,
+      is_hot_deal,
+      discount_percent,
+      offer_end_date,
+      variants = [],
+    } = req.body;
+
+    const pres = await client.query(
+      `INSERT INTO products 
+       (name, price, description, category_slug, image_url, secondary_image_url, 
+        is_top_product, is_hot_deal, discount_percent, offer_end_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [
+        name,
+        price,
+        description,
+        category_slug,
+        image_url,
+        secondary_image_url,
+        is_top_product,
+        is_hot_deal,
+        discount_percent,
+        offer_end_date,
+      ]
+    );
+    const product = pres.rows[0];
+
+    for (const variant of variants) {
+      const vres = await client.query(
+        `INSERT INTO product_variants (product_id, variant_level, name)
+         VALUES ($1,$2,$3) RETURNING *`,
+        [product.id, variant.level, variant.name]
+      );
+      const vr = vres.rows[0];
+      if (variant.options?.length) {
+        for (const o of variant.options) {
+          await client.query(
+            `INSERT INTO product_variant_options 
+             (variant_id, option_name, option_price, option_image_url)
+             VALUES ($1,$2,$3,$4)`,
+            [vr.id, o.option_name, o.option_price, o.option_image_url]
+          );
+        }
+      }
+    }
+
+    await client.query("COMMIT");
+    res.json(product);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ POST /api/products error:", err);
+    res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }

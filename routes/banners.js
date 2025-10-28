@@ -3,24 +3,39 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { v2: cloudinary } = require("cloudinary");
+const streamifier = require("streamifier");
 
-// --------------------- FOLDER SETUP ---------------------
-const uploadsDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
-// File name sanitize
-const sanitizeFilename = (name) =>
-  name.replace(/[^a-zA-Z0-9.\-_]/g, "_").substring(0, 50);
-
-// --------------------- MULTER SETUP ---------------------
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + "-" + sanitizeFilename(file.originalname)),
+// ---------------------
+// ☁️ CLOUDINARY CONFIG
+// ---------------------
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+// ---------------------
+// 📸 MULTER MEMORY STORAGE
+// ---------------------
+const storage = multer.memoryStorage();
 const uploadBanner = multer({ storage });
+
+// ---------------------
+// 🔼 Helper: Upload to Cloudinary
+// ---------------------
+const uploadToCloudinary = (fileBuffer, folder) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder },
+      (error, result) => {
+        if (result) resolve(result.secure_url);
+        else reject(error);
+      }
+    );
+    streamifier.createReadStream(fileBuffer).pipe(stream);
+  });
+};
 
 // ============================================================
 // ✅ GET ALL BANNERS
@@ -36,19 +51,15 @@ router.get("/", async (req, res) => {
 });
 
 // ============================================================
-// ✅ ADD NEW BANNER (Dynamic URL for Local + Render)
+// ✅ ADD NEW BANNER (Now via Cloudinary)
 // ============================================================
 router.post("/", uploadBanner.single("image"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Image required" });
 
-    // 🔹 Dynamic base URL (Local + Production)
-    const baseURL =
-      process.env.NODE_ENV === "production"
-        ? "https://avado-backend.onrender.com"
-        : `http://localhost:${process.env.PORT || 5000}`;
+    // ☁️ Upload image to Cloudinary folder "avado/banners"
+    const image_url = await uploadToCloudinary(req.file.buffer, "avado/banners");
 
-    const image_url = `${baseURL}/uploads/${req.file.filename}`;
     const { link } = req.body;
 
     const result = await pool.query(
@@ -59,7 +70,7 @@ router.post("/", uploadBanner.single("image"), async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error("❌ POST /banners error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
@@ -74,18 +85,14 @@ router.delete("/:id", async (req, res) => {
     if (banner.rows.length === 0)
       return res.status(404).json({ message: "Banner not found" });
 
-    const imageUrl = banner.rows[0].image_url;
-    const filename = imageUrl.split("/uploads/")[1];
-    const filePath = path.join(uploadsDir, filename);
-
+    // Database থেকে banner delete
     await pool.query("DELETE FROM banners WHERE id = $1", [id]);
 
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-
-    res.json({ message: "Banner deleted successfully" });
+    // (Optional) Cloudinary image delete করছো না — future use এর জন্য save থাকছে
+    res.json({ message: "🗑️ Banner deleted successfully" });
   } catch (err) {
     console.error("❌ DELETE /banners/:id error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
