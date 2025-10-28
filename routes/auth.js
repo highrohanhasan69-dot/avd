@@ -7,18 +7,20 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// 🌐 Dynamic Base URL (Local + Render)
-const getBaseURL = () => {
-  return process.env.NODE_ENV === "production"
-    ? "https://avado-backend.onrender.com"
-    : `http://localhost:${process.env.PORT || 5000}`;
+// 🌐 Cookie Options Helper
+const isProd = process.env.NODE_ENV === "production";
+const cookieOptions = {
+  httpOnly: true,
+  sameSite: isProd ? "None" : "Lax", // ✅ Required for Cloudflare Pages + Render
+  secure: isProd,                    // ✅ HTTPS only cookies
+  maxAge: 7 * 24 * 60 * 60 * 1000,   // 7 days
 };
 
 // ---------------- SIGNUP ----------------
 router.post('/signup', async (req, res) => {
   const { email, password, phone } = req.body;
   if (!email || !password)
-    return res.status(400).json({ message: 'Email & Password required' });
+    return res.status(400).json({ message: 'Email & password required' });
 
   try {
     const userExists = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
@@ -31,6 +33,10 @@ router.post('/signup', async (req, res) => {
       'INSERT INTO users (email, password, phone) VALUES ($1,$2,$3) RETURNING id,email,phone',
       [email, hashedPassword, phone]
     );
+
+    // ✅ Issue JWT token after signup
+    const token = jwt.sign({ id: result.rows[0].id }, JWT_SECRET, { expiresIn: '7d' });
+    res.cookie('token', token, cookieOptions);
 
     res.json({ message: 'Signup successful', user: result.rows[0] });
   } catch (err) {
@@ -53,24 +59,14 @@ router.post('/login', async (req, res) => {
 
     if (!userResult.rows.length)
       return res.status(400).json({ message: 'User not found' });
-    const user = userResult.rows[0];
 
+    const user = userResult.rows[0];
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
       return res.status(400).json({ message: 'Invalid password' });
 
-    // ✅ JWT Cookie (Dynamic domain + Secure config)
+    // ✅ JWT Cookie Setup
     const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
-
-    const isProd = process.env.NODE_ENV === "production";
-    const cookieOptions = {
-  httpOnly: true,
-  sameSite: isProd ? "None" : "Lax", // ✅ Cross-domain support
-  secure: isProd,                    // ✅ HTTPS only cookies
-  domain: isProd ? ".onrender.com" : undefined, // ✅ Allow Cloudflare → Render cookie share
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-};
-
     res.cookie('token', token, cookieOptions);
 
     res.json({
@@ -90,7 +86,11 @@ router.get('/current-user', async (req, res) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const userResult = await pool.query('SELECT id,email,phone FROM users WHERE id=$1', [decoded.id]);
+    const userResult = await pool.query(
+      'SELECT id,email,phone FROM users WHERE id=$1',
+      [decoded.id]
+    );
+
     if (!userResult.rows.length)
       return res.status(404).json({ message: 'User not found' });
 
@@ -103,12 +103,7 @@ router.get('/current-user', async (req, res) => {
 
 // ---------------- LOGOUT ----------------
 router.post('/logout', (req, res) => {
-  const isProd = process.env.NODE_ENV === "production";
-  res.clearCookie('token', {
-    httpOnly: true,
-    sameSite: isProd ? "None" : "Lax",
-    secure: isProd,
-  });
+  res.clearCookie('token', cookieOptions);
   res.json({ message: 'Logged out successfully' });
 });
 
