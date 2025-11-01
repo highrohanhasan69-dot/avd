@@ -1,28 +1,64 @@
+// routes/footer.js
 const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { v2: cloudinary } = require("cloudinary");
+const streamifier = require("streamifier");
 
-// 🗂 Upload setup
-const uploadsDir = path.join(__dirname, "../uploads/footer");
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
-// ✅ Multer Storage + File Filter (SVG + PNG + JPG + JPEG allowed)
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + "-" + file.originalname.replace(/\s+/g, "_")),
+// ---------------------
+// ☁️ CLOUDINARY CONFIG
+// ---------------------
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const fileFilter = (req, file, cb) => {
-  const allowed = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml"];
-  if (allowed.includes(file.mimetype)) cb(null, true);
-  else cb(new Error("Only PNG, JPG, JPEG, and SVG files are allowed"));
-};
+// ---------------------
+// 📦 MULTER MEMORY STORAGE (Fast upload)
+// ---------------------
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/svg+xml",
+      "image/webp",
+    ];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPG, PNG, SVG, or WEBP images are allowed!"));
+  },
+});
 
-const upload = multer({ storage, fileFilter });
+// ---------------------
+// 🧩 Cloudinary Upload Helper
+// ---------------------
+const uploadToCloudinary = async (fileBuffer, folder) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder, resource_type: "auto" },
+        (error, result) => {
+          if (error) {
+            console.error("❌ Cloudinary upload failed:", error.message);
+            reject(error);
+          } else {
+            console.log("✅ Cloudinary upload success:", result.secure_url);
+            resolve(result.secure_url);
+          }
+        }
+      );
+      streamifier.createReadStream(fileBuffer).pipe(uploadStream);
+    } catch (err) {
+      console.error("❌ Streamifier error:", err.message);
+      reject(err);
+    }
+  });
+};
 
 // ==================== SUPPORT ====================
 router.get("/support", async (req, res) => {
@@ -153,7 +189,7 @@ router.put("/stay-connected/:id", async (req, res) => {
   }
 });
 
-// ==================== APP LINKS ====================
+// ==================== APP LINKS (CLOUDINARY) ====================
 router.get("/app-links", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM footer_app_links ORDER BY id ASC");
@@ -166,14 +202,17 @@ router.get("/app-links", async (req, res) => {
 router.post("/app-links", upload.single("icon"), async (req, res) => {
   try {
     const { link } = req.body;
-    const baseURL =
-      process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
-    const iconUrl = req.file ? `${baseURL}/uploads/footer/${req.file.filename}` : null;
+    let iconUrl = null;
+
+    if (req.file) {
+      iconUrl = await uploadToCloudinary(req.file.buffer, "avado/footer/app-links");
+    }
 
     const result = await pool.query(
       "INSERT INTO footer_app_links (link, icon) VALUES ($1,$2) RETURNING *",
       [link, iconUrl]
     );
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error("❌ APP LINK ERROR:", err);
@@ -184,10 +223,12 @@ router.post("/app-links", upload.single("icon"), async (req, res) => {
 router.put("/app-links/:id", upload.single("icon"), async (req, res) => {
   const { id } = req.params;
   const { link } = req.body;
-  const baseURL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
-  const iconUrl = req.file ? `${baseURL}/uploads/footer/${req.file.filename}` : null;
-
   try {
+    let iconUrl = null;
+    if (req.file) {
+      iconUrl = await uploadToCloudinary(req.file.buffer, "avado/footer/app-links");
+    }
+
     const result = await pool.query(
       "UPDATE footer_app_links SET link=$1, icon=COALESCE($2,icon) WHERE id=$3 RETURNING *",
       [link, iconUrl, id]
@@ -207,7 +248,7 @@ router.delete("/app-links/:id", async (req, res) => {
   }
 });
 
-// ==================== SOCIAL LINKS ====================
+// ==================== SOCIAL LINKS (CLOUDINARY) ====================
 router.get("/social-links", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM footer_social_links ORDER BY id ASC");
@@ -220,14 +261,17 @@ router.get("/social-links", async (req, res) => {
 router.post("/social-links", upload.single("icon"), async (req, res) => {
   try {
     const { link } = req.body;
-    const baseURL =
-      process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
-    const iconUrl = req.file ? `${baseURL}/uploads/footer/${req.file.filename}` : null;
+    let iconUrl = null;
+
+    if (req.file) {
+      iconUrl = await uploadToCloudinary(req.file.buffer, "avado/footer/social-links");
+    }
 
     const result = await pool.query(
       "INSERT INTO footer_social_links (link, icon) VALUES ($1,$2) RETURNING *",
       [link, iconUrl]
     );
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error("❌ SOCIAL LINK ERROR:", err);
@@ -238,10 +282,12 @@ router.post("/social-links", upload.single("icon"), async (req, res) => {
 router.put("/social-links/:id", upload.single("icon"), async (req, res) => {
   const { id } = req.params;
   const { link } = req.body;
-  const baseURL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
-  const iconUrl = req.file ? `${baseURL}/uploads/footer/${req.file.filename}` : null;
-
   try {
+    let iconUrl = null;
+    if (req.file) {
+      iconUrl = await uploadToCloudinary(req.file.buffer, "avado/footer/social-links");
+    }
+
     const result = await pool.query(
       "UPDATE footer_social_links SET link=$1, icon=COALESCE($2,icon) WHERE id=$3 RETURNING *",
       [link, iconUrl, id]
