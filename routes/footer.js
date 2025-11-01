@@ -9,11 +9,20 @@ const fs = require("fs");
 const uploadsDir = path.join(__dirname, "../uploads/footer");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+// ✅ Multer Storage + File Filter (SVG + PNG + JPG + JPEG allowed)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
+  filename: (req, file, cb) =>
+    cb(null, Date.now() + "-" + file.originalname.replace(/\s+/g, "_")),
 });
-const upload = multer({ storage });
+
+const fileFilter = (req, file, cb) => {
+  const allowed = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml"];
+  if (allowed.includes(file.mimetype)) cb(null, true);
+  else cb(new Error("Only PNG, JPG, JPEG, and SVG files are allowed"));
+};
+
+const upload = multer({ storage, fileFilter });
 
 // ==================== SUPPORT ====================
 router.get("/support", async (req, res) => {
@@ -157,9 +166,9 @@ router.get("/app-links", async (req, res) => {
 router.post("/app-links", upload.single("icon"), async (req, res) => {
   try {
     const { link } = req.body;
-    const iconUrl = req.file
-      ? `http://localhost:${process.env.PORT}/uploads/footer/${req.file.filename}`
-      : null;
+    const baseURL =
+      process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const iconUrl = req.file ? `${baseURL}/uploads/footer/${req.file.filename}` : null;
 
     const result = await pool.query(
       "INSERT INTO footer_app_links (link, icon) VALUES ($1,$2) RETURNING *",
@@ -167,6 +176,7 @@ router.post("/app-links", upload.single("icon"), async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (err) {
+    console.error("❌ APP LINK ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -174,9 +184,8 @@ router.post("/app-links", upload.single("icon"), async (req, res) => {
 router.put("/app-links/:id", upload.single("icon"), async (req, res) => {
   const { id } = req.params;
   const { link } = req.body;
-  const iconUrl = req.file
-    ? `http://localhost:${process.env.PORT}/uploads/footer/${req.file.filename}`
-    : null;
+  const baseURL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+  const iconUrl = req.file ? `${baseURL}/uploads/footer/${req.file.filename}` : null;
 
   try {
     const result = await pool.query(
@@ -211,9 +220,9 @@ router.get("/social-links", async (req, res) => {
 router.post("/social-links", upload.single("icon"), async (req, res) => {
   try {
     const { link } = req.body;
-    const iconUrl = req.file
-      ? `http://localhost:${process.env.PORT}/uploads/footer/${req.file.filename}`
-      : null;
+    const baseURL =
+      process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const iconUrl = req.file ? `${baseURL}/uploads/footer/${req.file.filename}` : null;
 
     const result = await pool.query(
       "INSERT INTO footer_social_links (link, icon) VALUES ($1,$2) RETURNING *",
@@ -221,6 +230,7 @@ router.post("/social-links", upload.single("icon"), async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (err) {
+    console.error("❌ SOCIAL LINK ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -228,9 +238,8 @@ router.post("/social-links", upload.single("icon"), async (req, res) => {
 router.put("/social-links/:id", upload.single("icon"), async (req, res) => {
   const { id } = req.params;
   const { link } = req.body;
-  const iconUrl = req.file
-    ? `http://localhost:${process.env.PORT}/uploads/footer/${req.file.filename}`
-    : null;
+  const baseURL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+  const iconUrl = req.file ? `${baseURL}/uploads/footer/${req.file.filename}` : null;
 
   try {
     const result = await pool.query(
@@ -265,7 +274,6 @@ router.get("/texts", async (req, res) => {
 router.put("/texts", async (req, res) => {
   const { app_text, copyright, powered_by } = req.body;
   try {
-    // check if record exists
     const check = await pool.query("SELECT id FROM footer_texts LIMIT 1");
 
     let result;
