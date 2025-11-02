@@ -85,15 +85,19 @@ router.get('/current-user', async (req, res) => {
   if (!token) return res.status(401).json({ message: 'Unauthorized' });
 
   try {
+    // 🔹 টোকেন verify করা
     const decoded = jwt.verify(token, JWT_SECRET);
+
+    // 🔹 ইউজারের role সহ সমস্ত তথ্য আনছি
     const userResult = await pool.query(
-      'SELECT id,email,phone FROM users WHERE id=$1',
+      'SELECT id, email, phone, role FROM users WHERE id=$1',
       [decoded.id]
     );
 
     if (!userResult.rows.length)
       return res.status(404).json({ message: 'User not found' });
 
+    // 🔹 সফল হলে role সহ user পাঠানো হচ্ছে
     res.json({ user: userResult.rows[0] });
   } catch (err) {
     console.error("❌ CURRENT USER ERROR:", err);
