@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const cookieParser = require("cookie-parser");
 const pool = require("./db");
+const { adminOnly } = require("./middleware/authMiddleware"); // ✅ admin middleware import
 
 const app = express();
 
@@ -25,7 +26,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -59,6 +59,21 @@ app.use("/api/footer", footerRoutes);
 app.use("/banners", bannerRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/products", productRoutes);
+
+// ---------------- ADMIN PROTECTED TEST ROUTE ----------------
+// ✅ Example secure route — only accessible by admin users
+app.get("/api/admin/test", adminOnly, async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      message: "✅ You are an admin!",
+      user: req.user, // will contain id + role from token
+    });
+  } catch (err) {
+    console.error("Admin route error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 // ---------------- HEALTH CHECK ----------------
 app.get("/health", (req, res) => {

@@ -1,3 +1,4 @@
+// middleware/authMiddleware.js
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const db = require("../db");
@@ -13,6 +14,9 @@ const cookieOptions = {
   maxAge: 1000 * 60 * 60 * 24 * 30,  // 30 days
 };
 
+/* ==========================================================
+   ✅ Logged-in User বা Guest চিনে ফেলার Middleware
+========================================================== */
 const getUserOrGuest = async (req, res, next) => {
   try {
     const token = req.cookies.token;
@@ -23,7 +27,7 @@ const getUserOrGuest = async (req, res, next) => {
       const userRes = await db.query("SELECT id FROM users WHERE id=$1", [decoded.id]);
 
       if (userRes.rows.length) {
-        req.user = { id: userRes.rows[0].id };
+        req.user = { id: userRes.rows[0].id, role: decoded.role };
         req.cartOwner = { type: "user", id: req.user.id };
         return next();
       }
@@ -57,4 +61,28 @@ const getUserOrGuest = async (req, res, next) => {
   }
 };
 
-module.exports = { getUserOrGuest };
+/* ==========================================================
+   ✅ শুধুমাত্র Admin এর জন্য Access Control Middleware
+========================================================== */
+const adminOnly = (req, res, next) => {
+  const token = req.cookies.token;
+  if (!token) return res.status(401).json({ message: "Unauthorized: No token found" });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // 🔍 Check role from token
+    if (decoded.role !== "admin") {
+      return res.status(403).json({ message: "Access denied: Admins only" });
+    }
+
+    // Attach user info for next middleware
+    req.user = decoded;
+    next();
+  } catch (err) {
+    console.error("JWT verification error:", err);
+    return res.status(401).json({ message: "Invalid or expired token" });
+  }
+};
+
+module.exports = { getUserOrGuest, adminOnly };
