@@ -50,7 +50,7 @@ const footerRoutes = require("./routes/footer");
 const bannerRoutes = require("./routes/banners");      // ✅ Banners
 const categoryRoutes = require("./routes/categories"); // ✅ Categories
 const productRoutes = require("./routes/products");    // ✅ Products
-
+const statsRoutes = require("./routes/stats");
 // ---------------- ROUTES REGISTER ----------------
 app.use("/api/auth", authRoutes);
 app.use("/api/cart", cartRoutes);
@@ -59,7 +59,7 @@ app.use("/api/footer", footerRoutes);
 app.use("/banners", bannerRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/products", productRoutes);
-
+app.use("/api/stats", statsRoutes);
 // ---------------- ADMIN PROTECTED TEST ROUTE ----------------
 // ✅ Example secure route — only accessible by admin users
 app.get("/api/admin/test", adminOnly, async (req, res) => {
