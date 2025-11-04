@@ -8,20 +8,21 @@ const fs = require("fs");
 const path = require("path");
 const cookieParser = require("cookie-parser");
 const pool = require("./db");
-const { adminOnly } = require("./middleware/authMiddleware"); // ✅ admin middleware import
+const { adminOnly } = require("./middleware/authMiddleware");
 
 const app = express();
 
-// ---------------- MIDDLEWARE ----------------
+// ✅ VERY IMPORTANT: HTTPS proxy trust (Render)
+app.set("trust proxy", 1);
 
-// ✅ Proper CORS setup for Local + Cloudflare (Frontend)
+// ---------------- MIDDLEWARE ----------------
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",          // local dev
-      "https://avado.pages.dev",        // Cloudflare live frontend
+      "http://localhost:5173",
+      "https://avado.pages.dev",
     ],
-    credentials: true, // ✅ allow cookie exchange
+    credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -31,7 +32,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// ✅ Request Logger (optional but useful)
+// ✅ Request Logger
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
   next();
@@ -47,28 +48,25 @@ const authRoutes = require("./routes/auth");
 const cartRoutes = require("./routes/cart");
 const checkoutRoutes = require("./routes/checkout");
 const footerRoutes = require("./routes/footer");
-const bannerRoutes = require("./routes/banners");      // ✅ Banners
-const categoryRoutes = require("./routes/categories"); // ✅ Categories
-const productRoutes = require("./routes/products");    // ✅ Products
+const bannerRoutes = require("./routes/banners");
+const categoryRoutes = require("./routes/categories");
+const productRoutes = require("./routes/products");
 const statsRoutes = require("./routes/stats");
+
 // ---------------- ROUTES REGISTER ----------------
 app.use("/api/auth", authRoutes);
 app.use("/api/cart", cartRoutes);
-app.use("/api/checkout", checkoutRoutes);
+app.use("/api/checkout", checkoutRoutes); // ✅ checkout যুক্ত আছে—OK
 app.use("/api/footer", footerRoutes);
 app.use("/banners", bannerRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/products", productRoutes);
 app.use("/api/stats", statsRoutes);
+
 // ---------------- ADMIN PROTECTED TEST ROUTE ----------------
-// ✅ Example secure route — only accessible by admin users
 app.get("/api/admin/test", adminOnly, async (req, res) => {
   try {
-    res.json({
-      success: true,
-      message: "✅ You are an admin!",
-      user: req.user, // will contain id + role from token
-    });
+    res.json({ success: true, message: "✅ You are an admin!", user: req.user });
   } catch (err) {
     console.error("Admin route error:", err);
     res.status(500).json({ message: "Server error" });
