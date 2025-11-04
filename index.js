@@ -12,22 +12,21 @@ const { adminOnly } = require("./middleware/authMiddleware");
 
 const app = express();
 
-// ✅ VERY IMPORTANT: HTTPS proxy trust (Render)
+// ✅ Trust proxy (Render-এর জন্য আবশ্যক)
 app.set("trust proxy", 1);
-
 // ---------------- MIDDLEWARE ----------------
+// ✅ CORS config (Render + Cloudflare Pages)
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",
-      "https://avado.pages.dev",
+      "https://avado.pages.dev",   // তোমার frontend domain
+      "http://localhost:5173"      // local test
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

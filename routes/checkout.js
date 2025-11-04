@@ -62,17 +62,19 @@ router.post("/", getUserOrGuest, async (req, res) => {
         userId = newUser.rows[0].id;
 
         // 🔹 Set JWT Cookie for auto login (cross-domain safe)
-        const newToken = jwt.sign({ id: userId }, JWT_SECRET, {
-          expiresIn: "7d",
-        });
+       const newToken = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "7d" });
+res.cookie("token", newToken, {...});
 
-        res.cookie("token", newToken, {
-          httpOnly: true,
-          sameSite: isProd ? "None" : "Lax",
-          secure: isProd,
-          domain: isProd ? ".onrender.com" : undefined, // ✅ Render + Cloudflare sync
-          maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
+
+     res.cookie("token", newToken, {
+  httpOnly: true,
+  secure: true,             // ✅ HTTPS required (Render uses HTTPS)
+  sameSite: "None",         // ✅ allow cross-domain cookie
+  domain: "avado-backend.onrender.com", // ✅ তোমার backend domain
+  path: "/",                // ✅ cookie সব রুটে কাজ করবে
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+});
+
 
         console.log("✅ New user created & logged in:", phone);
       }
