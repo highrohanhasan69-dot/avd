@@ -7,8 +7,6 @@ const bcrypt = require("bcryptjs");
 const { getUserOrGuest } = require("../middleware/authMiddleware");
 
 const JWT_SECRET = process.env.JWT_SECRET;
-
-// 🌐 Environment helper (for cross-domain cookies)
 const isProd = process.env.NODE_ENV === "production";
 
 /* ===========================================================
@@ -61,20 +59,19 @@ router.post("/", getUserOrGuest, async (req, res) => {
         );
         userId = newUser.rows[0].id;
 
-        // 🔹 Set JWT Cookie for auto login (cross-domain safe)
-       const newToken = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "7d" });
-res.cookie("token", newToken, {...});
+        // 🔹 Set JWT Cookie for auto login (Render + Cloudflare compatible)
+        const newToken = jwt.sign({ id: userId }, JWT_SECRET, {
+          expiresIn: "7d",
+        });
 
-
-     res.cookie("token", newToken, {
-  httpOnly: true,
-  secure: true,             // ✅ HTTPS required (Render uses HTTPS)
-  sameSite: "None",         // ✅ allow cross-domain cookie
-  domain: "avado-backend.onrender.com", // ✅ তোমার backend domain
-  path: "/",                // ✅ cookie সব রুটে কাজ করবে
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-});
-
+        res.cookie("token", newToken, {
+          httpOnly: true,
+          secure: true, // ✅ HTTPS only
+          sameSite: "None", // ✅ Allow cross-domain cookie
+          domain: "avado-backend.onrender.com", // ✅ Your backend domain
+          path: "/", // ✅ Cookie available for all routes
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        });
 
         console.log("✅ New user created & logged in:", phone);
       }
@@ -89,7 +86,7 @@ res.cookie("token", newToken, {...});
       return { ...item, price };
     });
 
-    // 🔹 4️⃣ Insert order (as per your table)
+    // 🔹 4️⃣ Insert order
     const insertQuery = `
       INSERT INTO orders (
         user_id, session_id, items, total, customer, payment_method, status, order_date, created_at
@@ -103,7 +100,7 @@ res.cookie("token", newToken, {...});
       req.cartOwner?.id || null,
       JSON.stringify(fixedItems),
       total,
-      JSON.stringify(customer), // ✅ full JSON store
+      JSON.stringify(customer),
       payment_method || "Cash on Delivery",
       "pending",
     ]);
@@ -208,4 +205,4 @@ router.put("/admin/:id/status", async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;
