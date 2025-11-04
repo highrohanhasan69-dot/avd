@@ -4,9 +4,17 @@ const router = express.Router();
 const pool = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { cookieOptions } = require('../utils/cookies');
 
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// 🌐 Cookie Options Helper
+const isProd = process.env.NODE_ENV === "production";
+const cookieOptions = {
+  httpOnly: true,
+  sameSite: isProd ? "None" : "Lax", // ✅ Required for Cloudflare Pages + Render
+  secure: isProd,                    // ✅ HTTPS only cookies
+  maxAge: 7 * 24 * 60 * 60 * 1000,   // 7 days
+};
 
 // ---------------- SIGNUP ----------------
 router.post('/signup', async (req, res) => {
@@ -15,25 +23,22 @@ router.post('/signup', async (req, res) => {
     return res.status(400).json({ message: 'Email & password required' });
 
   try {
-    const userExists = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
+    const userExists = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
     if (userExists.rows.length)
       return res.status(400).json({ message: 'Email already exists' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ⚠️ ধরে নিচ্ছি users টেবিলে role ডিফল্ট 'user'
     const result = await pool.query(
-      'INSERT INTO users (email, password, phone) VALUES ($1,$2,$3) RETURNING id,email,phone,role',
-      [email, hashedPassword, phone || null]
+      'INSERT INTO users (email, password, phone) VALUES ($1,$2,$3) RETURNING id,email,phone',
+      [email, hashedPassword, phone]
     );
 
-    const user = result.rows[0];
-
-    // ✅ Role সহ JWT
-    const token = jwt.sign({ id: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: '7d' });
+    // ✅ Issue JWT token after signup
+    const token = jwt.sign({ id: result.rows[0].id }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, cookieOptions);
 
-    res.json({ message: 'Signup successful', user });
+    res.json({ message: 'Signup successful', user: result.rows[0] });
   } catch (err) {
     console.error("❌ SIGNUP ERROR:", err);
     res.status(500).json({ message: 'Server error' });
@@ -48,22 +53,25 @@ router.post('/login', async (req, res) => {
 
   try {
     const userResult = await pool.query(
-      'SELECT id,email,phone,role,password FROM users WHERE email=$1 OR phone=$1',
+      'SELECT * FROM users WHERE email=$1 OR phone=$1',
       [loginInput]
     );
-    if (!userResult.rows.length) return res.status(400).json({ message: 'User not found' });
+
+    if (!userResult.rows.length)
+      return res.status(400).json({ message: 'User not found' });
 
     const user = userResult.rows[0];
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: 'Invalid password' });
+    if (!isMatch)
+      return res.status(400).json({ message: 'Invalid password' });
 
-    // ✅ Role সহ JWT
-    const token = jwt.sign({ id: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: '7d' });
+    // ✅ JWT Cookie Setup
+    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, cookieOptions);
 
     res.json({
       message: 'Login successful',
-      user: { id: user.id, email: user.email, phone: user.phone, role: user.role },
+      user: { id: user.id, email: user.email, phone: user.phone },
     });
   } catch (err) {
     console.error("❌ LOGIN ERROR:", err);
@@ -77,14 +85,19 @@ router.get('/current-user', async (req, res) => {
   if (!token) return res.status(401).json({ message: 'Unauthorized' });
 
   try {
+    // 🔹 টোকেন verify করা
     const decoded = jwt.verify(token, JWT_SECRET);
+
+    // 🔹 ইউজারের role সহ সমস্ত তথ্য আনছি
     const userResult = await pool.query(
       'SELECT id, email, phone, role FROM users WHERE id=$1',
       [decoded.id]
     );
+
     if (!userResult.rows.length)
       return res.status(404).json({ message: 'User not found' });
 
+    // 🔹 সফল হলে role সহ user পাঠানো হচ্ছে
     res.json({ user: userResult.rows[0] });
   } catch (err) {
     console.error("❌ CURRENT USER ERROR:", err);
@@ -98,7 +111,7 @@ router.post('/logout', (req, res) => {
   res.json({ message: 'Logged out successfully' });
 });
 
-// ---------------- UPDATE ACCOUNT ---------------- (unchanged logic)
+// ---------------- UPDATE ACCOUNT ----------------
 router.put('/account', async (req, res) => {
   const token = req.cookies.token;
   if (!token) return res.status(401).json({ message: 'Unauthorized' });
@@ -112,8 +125,16 @@ router.put('/account', async (req, res) => {
     const params = [];
     let i = 1;
 
-    if (email) { query += `email=$${i},`; params.push(email); i++; }
-    if (phone) { query += `phone=$${i},`; params.push(phone); i++; }
+    if (email) {
+      query += `email=$${i},`;
+      params.push(email);
+      i++;
+    }
+    if (phone) {
+      query += `phone=$${i},`;
+      params.push(phone);
+      i++;
+    }
     if (password) {
       const hashed = await bcrypt.hash(password, 10);
       query += `password=$${i},`;
@@ -121,8 +142,8 @@ router.put('/account', async (req, res) => {
       i++;
     }
 
-    query = query.slice(0, -1);
-    query += ` WHERE id=$${i} RETURNING id,email,phone,role`;
+    query = query.slice(0, -1); // remove trailing comma
+    query += ` WHERE id=$${i} RETURNING id,email,phone`;
     params.push(decoded.id);
 
     const result = await pool.query(query, params);
