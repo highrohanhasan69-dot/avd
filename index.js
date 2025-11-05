@@ -9,24 +9,27 @@ const path = require("path");
 const cookieParser = require("cookie-parser");
 const pool = require("./db");
 const { adminOnly } = require("./middleware/authMiddleware");
+const axios = require("axios"); // 🟣 নতুন যোগ
 
 const app = express();
 
 // ✅ Trust proxy (Render-এর জন্য আবশ্যক)
 app.set("trust proxy", 1);
+
 // ---------------- MIDDLEWARE ----------------
 // ✅ CORS config (Render + Cloudflare Pages)
 app.use(
   cors({
     origin: [
-      "https://avado.pages.dev",   // তোমার frontend domain
-      "http://localhost:5173"      // local test
+      "https://avado.pages.dev", // তোমার frontend domain
+      "http://localhost:5173",   // local test
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -55,7 +58,7 @@ const statsRoutes = require("./routes/stats");
 // ---------------- ROUTES REGISTER ----------------
 app.use("/api/auth", authRoutes);
 app.use("/api/cart", cartRoutes);
-app.use("/api/checkout", checkoutRoutes); // ✅ checkout যুক্ত আছে—OK
+app.use("/api/checkout", checkoutRoutes);
 app.use("/api/footer", footerRoutes);
 app.use("/banners", bannerRoutes);
 app.use("/categories", categoryRoutes);
@@ -70,6 +73,11 @@ app.get("/api/admin/test", adminOnly, async (req, res) => {
     console.error("Admin route error:", err);
     res.status(500).json({ message: "Server error" });
   }
+});
+
+// ---------------- ROOT ROUTE ----------------
+app.get("/", (req, res) => {
+  res.send("✅ AVADO backend is alive!");
 });
 
 // ---------------- HEALTH CHECK ----------------
@@ -91,3 +99,14 @@ app.listen(PORT, async () => {
     console.error("❌ PostgreSQL connection failed:", err);
   }
 });
+
+// ===================== KEEP SERVER AWAKE =====================
+const SERVER_URL = process.env.RENDER_URL || "https://avado-backend.onrender.com";
+
+// প্রতি 10 মিনিট পর নিজের সার্ভারে অনুরোধ পাঠাবে যাতে Render sleep না করে
+setInterval(() => {
+  axios
+    .get(`${SERVER_URL}/health`)
+    .then(() => console.log("⚡ Server pinged to stay awake"))
+    .catch((err) => console.error("Ping failed:", err.message));
+}, 10 * 60 * 1000); // 10 মিনিটে একবার
