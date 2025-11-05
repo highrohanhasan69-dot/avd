@@ -100,13 +100,3 @@ app.listen(PORT, async () => {
   }
 });
 
-// ===================== KEEP SERVER AWAKE =====================
-const SERVER_URL = process.env.RENDER_URL || "https://avado-backend.onrender.com";
-
-// প্রতি 10 মিনিট পর নিজের সার্ভারে অনুরোধ পাঠাবে যাতে Render sleep না করে
-setInterval(() => {
-  axios
-    .get(`${SERVER_URL}/health`)
-    .then(() => console.log("⚡ Server pinged to stay awake"))
-    .catch((err) => console.error("Ping failed:", err.message));
-}, 10 * 60 * 1000); // 10 মিনিটে একবার
